@@ -4,16 +4,15 @@ const app = express();
 
 app.use(express.static(__dirname));                                         // to serve css file
 
-app.get("/", (req, res) => res.sendFile(__dirname + "/GConsole copy.html")) //*9001 hosts client on express
-
-
+app.get("/", (req, res) => res.sendFile(__dirname + "index.html")) //*9001 hosts client on express
 app.listen(9001, () => console.log("Listening on http port 9001"))
-const websocketServer = require("websocket").server
+
 const httpServer = http.createServer();
+const websocketServer = require("websocket").server
 httpServer.listen(9000, () => console.log("Listening.. on 9000"))
 
 
-// M: import data.json server side
+//  Import data.json server side
 const db = require("./data.json");
 // console.log(db.categories);
 
@@ -26,11 +25,10 @@ for (i in trivobj.categories) {
     //Start with a blank category
     var category = {
         title: trivobj.categories[i].title,   //*category id
-        clues: []              //clue is differen dataset
+        clues: []              //clue is different dataset
     }
     //Add every clue within a category to our database of clues  //splice chooses 5 clues
     var clues = shuffle(trivobj.categories[i].clues).splice(0, 5).forEach((clue, index) => {
-        //    console.log(clue)
         //Create unique ID for this clue
         let clueId = i + "-" + index;
         category.clues.push(clueId);
@@ -57,10 +55,33 @@ const wsServer = new websocketServer({
 })
 
 wsServer.on("request", request => {
-    //connect
+
     const connection = request.accept(null, request.origin);
-    connection.on("open", () => console.log("opened!"))
-    connection.on("close", () => console.log("closed!"))
+    connection.on("open", () => console.log("opened!"));
+    connection.on("close", () => console.log("closed!"));
+
+    //generate a new clientId
+    const clientId = guid();
+    trivobj = {
+        "categories": [
+            { "title": "Sports" },
+            { "title": "Technology" },
+            { "title": "Movies" },
+            { "title": "Editorial" },
+        ]
+    }
+    clients[clientId] = {  //*mapping from a connection to the clientId
+        "connection": connection  //* I can add some more metadata with the client here maybe a nickname or color of client etc */
+    }
+
+    const payLoad = { //*sendback to the user/client from server
+        "method": "connect",
+        "clientId": clientId,
+        "trivobj": trivobj
+    }
+    //send back the client connect
+    connection.send(JSON.stringify(payLoad))
+
     connection.on("message", message => {
         const result = JSON.parse(message.utf8Data) //server rcv msg from client in JSON form (assumption made) **utf8Data is rcvd by server if cliet sends sth
         //I have received a message from the client
@@ -72,7 +93,9 @@ wsServer.on("request", request => {
             games[gameId] = {
                 "id": gameId,
                 "client-count": 3,    //---see if i can remove this 
-                "clients": []
+                "clients": [],
+                "usedQues": null,
+                "turnOfPlayer": 0
             }
 
             const payLoad = {
@@ -122,7 +145,7 @@ wsServer.on("request", request => {
                 state = {}
 
             state[scoreId] = newScore;
-            console.log("backend pe update chala")
+            console.log("backend pe update chala") // -----------------------------------------------------
             games[gameId].state = state;
         }
 
@@ -131,6 +154,8 @@ wsServer.on("request", request => {
         if (result.method === "getQuestion") {
             const clientId = result.clientId;
             const clueId = result.clueId;
+            const gameId = result.gameId;
+            games[gameId].usedQues = clueId;
 
             // Server sends the question to the client
             const payLoad = {
@@ -147,6 +172,7 @@ wsServer.on("request", request => {
             const clientId = result.clientId;
             const clients_answer = result.ans;
             const clueId = result.clueId;
+            const gameId = result.gameId;
 
             let isCorrect = clues_t[clueId].answer === clients_answer;
 
@@ -158,27 +184,16 @@ wsServer.on("request", request => {
             }
 
             clients[clientId].connection.send(JSON.stringify(payload));
+            games[gameId].turnOfPlayer = (games[gameId].turnOfPlayer + 1) % 3;
 
             console.log(payload);
             console.log("cliennts ans", clients_answer);
             console.log(clues_t[clueId].answer)
 
+            setTimeout(updateGameState, 500);
         }
 
     })
-
-    //generate a new clientId
-    const clientId = guid();
-    clients[clientId] = {  //*mapping from a connection to the clientId
-        "connection": connection  //* I can add some more metadata with the client here maybe a nickname or color of client etc */
-    }
-
-    const payLoad = { //*sendback to the user/client from server
-        "method": "connect",
-        "clientId": clientId
-    }
-    //send back the client connect
-    connection.send(JSON.stringify(payLoad))  //*JSON works on string n not bytes hence stringify required
 
 })
 
@@ -195,8 +210,9 @@ function updateGameState() {   //*****SEND BACK GAME STATE AFTER EVERY 500SEC */
         game.clients.forEach(c => { //******UPDATED STATE SENT BACK TO EACH CLIENT AFTER TIME 500 */
             clients[c.clientId].connection.send(JSON.stringify(payLoad))  //SERVER SEND STATE TO ALL CLIENTS
         })
+        games[g].usedQues = null;
     }
-    setTimeout(updateGameState, 500);  //EVERY 500MS IT IS SENT
+    // setTimeout(updateGameState, 500);  //EVERY 500MS IT IS SENT
 }
 
 
@@ -213,7 +229,9 @@ const guid = () => (S4() + S4() + "-" + S4() + "-4" + S4().substr(0, 3) + "-" + 
 function shuffle(a) {
     var j, x, i;
     for (i = a.length - 1; i > 0; i--) {
-        j = Math.floor(Math.random() * (i + 1));
+        // j = Math.floor(Math.random() * (i + 1));
+        j = Math.floor(Math.random() * (a.length));
+        console.log("shuffle", i, j);
         x = a[i];
         a[i] = a[j];
         a[j] = x;
